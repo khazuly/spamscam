@@ -18,6 +18,9 @@ Tool pengujian OTP multi-provider dengan arsitektur konkuren (paralel), connecti
 - **KrediOne** (HMAC/MD5 signature)
 - **RupiahCepat** (Enkripsi AES-CBC)
 - **KreditNavigator** (Enkripsi AES-CBC)
+- **HRS-BRE** (Form multipart carrier)
+- **Dunia Games** (WhatsApp/SMS OTP)
+- **Bonus Belanja** (Registration API)
 
 ## Instalasi
 
@@ -78,9 +81,13 @@ spamscam/
 └── provider/
     ├── __init__.py                  # Registri provider & backward-compatible exports
     ├── base.py                      # Model ProviderResult, Session builder & pooling
+    ├── utils.py                     # Helper user agent, formatting, & multipart
     ├── adakami_provider.py          # Provider AdaKami (optimized slider matcher)
     ├── indosaku_provider.py         # Provider Indosaku (AES-ECB)
     ├── kredione_provider.py         # Provider KrediOne (MD5 signature)
     ├── rc_provider.py               # Provider RupiahCepat (AES-CBC)
-    └── kreditnavigator_provider.py  # Provider KreditNavigator (AES-CBC + session reuse)
+    ├── kreditnavigator_provider.py  # Provider KreditNavigator (AES-CBC + session reuse)
+    ├── hrsbre_provider.py           # Provider HRS-BRE (multipart form)
+    ├── duniagames_provider.py       # Provider Dunia Games (send-otp)
+    └── bonusbelanja_provider.py     # Provider Bonus Belanja (registration app)
 ```

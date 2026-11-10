@@ -19,6 +19,18 @@ from provider.rc_provider import (
     send_otp as rc_send_otp,
     send_otp_detailed as rc_send_otp_detailed,
 )
+from provider.hrsbre_provider import (
+    send_otp as hrsbre_send_otp,
+    send_otp_detailed as hrsbre_send_otp_detailed,
+)
+from provider.duniagames_provider import (
+    send_otp as duniagames_send_otp,
+    send_otp_detailed as duniagames_send_otp_detailed,
+)
+from provider.bonusbelanja_provider import (
+    send_otp as bonusbelanja_send_otp,
+    send_otp_detailed as bonusbelanja_send_otp_detailed,
+)
 from provider.base import ProviderResult, create_session, DEFAULT_TIMEOUT
 
 PROVIDERS_REGISTRY: list[tuple[str, object]] = [
@@ -27,6 +39,9 @@ PROVIDERS_REGISTRY: list[tuple[str, object]] = [
     ("KrediOne", kredione_send_otp_detailed),
     ("RupiahCepat", rc_send_otp_detailed),
     ("KreditNavigator", kreditnavigator_send_otp_detailed),
+    ("HRS-BRE", hrsbre_send_otp_detailed),
+    ("Dunia Games", duniagames_send_otp_detailed),
+    ("Bonus Belanja", bonusbelanja_send_otp_detailed),
 ]
 
 __all__ = [
@@ -40,6 +55,12 @@ __all__ = [
     "rc_send_otp_detailed",
     "kreditnavigator_send_otp",
     "kreditnavigator_send_otp_detailed",
+    "hrsbre_send_otp",
+    "hrsbre_send_otp_detailed",
+    "duniagames_send_otp",
+    "duniagames_send_otp_detailed",
+    "bonusbelanja_send_otp",
+    "bonusbelanja_send_otp_detailed",
     "ProviderResult",
     "create_session",
     "DEFAULT_TIMEOUT",
