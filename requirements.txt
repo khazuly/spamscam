@@ -1,5 +1,6 @@
 requests
 pycryptodome
+pycryptodomex
 rich
 opencv-python
 numpy

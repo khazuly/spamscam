@@ -154,25 +154,20 @@ def send_otp(mobile: str) -> bool:
         validity_resp = _post("user/validity/check", validity_body)
         validity = _decode_response(validity_resp)
 
-        if not isinstance(validity, dict):
+        if not isinstance(validity, dict) or validity.get("lil") != 0:
             return False
 
-        gan = validity.get("gan")
-        frle = gan.get("frle") if isinstance(gan, dict) else None
-        if frle is None:
-            return False
-
-        if frle == 0:
-            otp_path = "user-service/text-message"
-            otp_params: dict[str, Any] = {"ogeuvrfa": mobile, "xyldzdmx": "TEXT", "tvafse": 0}
-        else:
-            otp_path = "auth/inbound-sms"
-            otp_params = {"hjhi": mobile, "str": "TEXT", "uzho": 0}
-
-        otp_body = _build_body(otp_params, **device_kwargs)
-        otp_resp = _post(otp_path, otp_body)
+        # Coba user-service/text-message terlebih dahulu
+        otp_body = _build_body({"ogeuvrfa": mobile, "xyldzdmx": "TEXT", "tvafse": 0}, **device_kwargs)
+        otp_resp = _post("user-service/text-message", otp_body)
         result = _decode_response(otp_resp)
+        if isinstance(result, dict) and result.get("lil") == 0:
+            return True
 
+        # Fallback ke auth/inbound-sms
+        otp_body = _build_body({"hjhi": mobile, "str": "TEXT", "uzho": 0}, **device_kwargs)
+        otp_resp = _post("auth/inbound-sms", otp_body)
+        result = _decode_response(otp_resp)
         return isinstance(result, dict) and result.get("lil") == 0
 
     except (requests.RequestException, KeyError, TypeError):

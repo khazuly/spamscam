@@ -9,6 +9,9 @@ Tool buat ngebombing OTP. Tiap siklus ngirim request ke semua provider, terus nu
 - KrediOne
 - RupiahCepat
 - KreditNavigator
+- HRS-BRE
+- Dunia Games
+- Bonus Belanja
 
 ## Cara pakai
 
@@ -34,9 +37,13 @@ smsOtp/
 ├── requirements.txt
 └── provider/
     ├── __init__.py
+    ├── utils.py
     ├── adakami_provider.py
     ├── indosaku_provider.py
     ├── kredione_provider.py
     ├── rc_provider.py
-    └── kreditnavigator_provider.py
+    ├── kreditnavigator_provider.py
+    ├── hrsbre_provider.py
+    ├── duniagames_provider.py
+    └── bonusbelanja_provider.py
 ```

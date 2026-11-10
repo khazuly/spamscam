@@ -14,6 +14,9 @@ from provider.indosaku_provider import send_otp as indosaku_send_otp
 from provider.kredione_provider import send_otp as kredione_send_otp
 from provider.rc_provider import send_otp as rc_send_otp
 from provider.kreditnavigator_provider import send_otp as kreditnavigator_send_otp
+from provider.hrsbre_provider import send_otp as hrsbre_send_otp
+from provider.duniagames_provider import send_otp as duniagames_send_otp
+from provider.bonusbelanja_provider import send_otp as bonusbelanja_send_otp
 
 COOLDOWN_SECONDS = 62
 
@@ -23,6 +26,9 @@ PROVIDERS: list[tuple[str, object]] = [
     ("KrediOne",         kredione_send_otp),
     ("RupiahCepat",      rc_send_otp),
     ("KreditNavigator",  kreditnavigator_send_otp),
+    ("HRS-BRE",          hrsbre_send_otp),
+    ("Dunia Games",      duniagames_send_otp),
+    ("Bonus Belanja",    bonusbelanja_send_otp),
 ]
 
 _BLOCK_GLYPHS: dict[str, tuple[str, ...]] = {
@@ -129,7 +135,7 @@ def run_cycle(no_hp: str, cycle: int, total: int) -> None:
     console.print(header)
     console.print(f"  {divider}", style="muted")
 
-    col_w = 32
+    col_w = 44
     for name, send_fn in PROVIDERS:
         label = f"  Meminta request OTP ke {name}..."
         print(f"{label:{col_w}}", end="", flush=True)
