@@ -14,6 +14,8 @@ warnings.filterwarnings(
 
 from requests.sessions import Session
 
+from provider.base import DEFAULT_TIMEOUT, ProviderResult, create_session
+
 BASE = "https://m.kredione.id"
 API_BASE = f"{BASE}/gateway"
 LANDING_URL = (
@@ -89,13 +91,19 @@ def _signed_headers(path: str, method: str) -> dict[str, str]:
 class _KredioneAuth:
 
     def __init__(self, session: Session | None = None):
-        self.s = session or self._new_session()
+        if session is not None:
+            self.s = session
+        else:
+            self.s = self._new_session()
 
     @staticmethod
     def _new_session() -> Session:
-        s = Session()
+        s = create_session()
         s.headers.update(_HEADERS)
-        s.get(LANDING_URL, timeout=30)
+        try:
+            s.get(LANDING_URL, timeout=DEFAULT_TIMEOUT)
+        except Exception:
+            pass
         return s
 
     def _request(self, method: str, path: str) -> dict:
@@ -104,7 +112,7 @@ class _KredioneAuth:
             method.upper(),
             url,
             headers=_signed_headers(path, method),
-            timeout=30,
+            timeout=DEFAULT_TIMEOUT,
         )
         res.raise_for_status()
         body = res.json()
@@ -119,8 +127,30 @@ class _KredioneAuth:
         return self._request("post", f"{SEND_ENDPOINT}?{query}")
 
 
+def send_otp_detailed(mobile: str, session: Session | None = None) -> ProviderResult:
+    """Kirim OTP ke *mobile* via KrediOne dengan informasi durasi dan status."""
+    t0 = time.perf_counter()
+    try:
+        auth = _KredioneAuth(session=session)
+        res = auth.send_otp(mobile)
+        elapsed = time.perf_counter() - t0
+        is_ok = res.get("suc") is True or res.get("status") == 0
+        msg = res.get("msg") or ("Berhasil" if is_ok else f"Status: {res.get('status')}")
+        return ProviderResult(
+            provider="KrediOne",
+            success=bool(is_ok),
+            elapsed=elapsed,
+            message=str(msg),
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        return ProviderResult(
+            provider="KrediOne",
+            success=False,
+            elapsed=time.perf_counter() - t0,
+            message=str(exc),
+        )
+
+
 def send_otp(mobile: str) -> bool:
     """Kirim OTP ke *mobile* via KrediOne. Kembalikan True jika berhasil."""
-    auth = _KredioneAuth()
-    res = auth.send_otp(mobile)
-    return res.get("suc") is True or res.get("status") == 0
+    return send_otp_detailed(mobile).success

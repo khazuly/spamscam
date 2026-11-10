@@ -15,9 +15,15 @@ warnings.filterwarnings(
     message="Unable to find acceptable character detection dependency",
 )
 
-from Cryptodome.Cipher import AES
-from Cryptodome.Util.Padding import pad, unpad
+try:
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Util.Padding import pad, unpad
+except ImportError:
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import pad, unpad
 from requests.sessions import Session
+
+from provider.base import DEFAULT_TIMEOUT, ProviderResult, create_session
 
 BASE = "https://apiservice.rupiahcepatweb.com"
 USER_AGENT = (
@@ -27,6 +33,9 @@ USER_AGENT = (
 
 AES_KEY = "889511be9163d0d23997851e61033282"
 AES_IV = "ec1d0eafaa9bbc096dfe255c86db9905"
+_AES_KEY_BYTES = bytes.fromhex(AES_KEY)
+_AES_IV_BYTES = bytes.fromhex(AES_IV)
+
 SALT = "&97dab6b088ad"
 
 OTP_CHANNEL = "2"
@@ -44,11 +53,7 @@ _HEADERS = {
 
 def _new_uuid() -> str:
     stamp = str(int(time.time() * 1000))
-    tail = "".join(
-        "0123456789abcdef"[int.from_bytes(os.urandom(1), "big") % 16]
-        for _ in range(12)
-    )
-    return stamp + tail
+    return stamp + os.urandom(6).hex()
 
 
 def _base_params(uuid: str) -> dict[str, Any]:
@@ -101,7 +106,7 @@ def _base_params(uuid: str) -> dict[str, Any]:
 class _RupiahCepatAuth:
 
     def __init__(self, session: Session | None = None):
-        self.s = session or Session()
+        self.s = session or create_session()
         self.s.headers.update(_HEADERS)
         self.uuid = _new_uuid()
 
@@ -111,17 +116,13 @@ class _RupiahCepatAuth:
         signed_keys = sorted(merged)[:20]
         raw = "&".join(f"{key}={merged[key]}" for key in signed_keys)
         merged["signature"] = hashlib.md5((raw + SALT).encode()).hexdigest()
-        cipher = AES.new(
-            bytes.fromhex(AES_KEY), AES.MODE_CBC, bytes.fromhex(AES_IV)
-        )
+        cipher = AES.new(_AES_KEY_BYTES, AES.MODE_CBC, _AES_IV_BYTES)
         body = json.dumps(merged, separators=(",", ":")).encode()
         blob = base64.b64encode(cipher.encrypt(pad(body, 16))).decode()
         return quote(blob, safe="")
 
     def _decrypt(self, blob: str) -> Any:
-        cipher = AES.new(
-            bytes.fromhex(AES_KEY), AES.MODE_CBC, bytes.fromhex(AES_IV)
-        )
+        cipher = AES.new(_AES_KEY_BYTES, AES.MODE_CBC, _AES_IV_BYTES)
         raw = cipher.decrypt(base64.b64decode(unquote(blob)))
         return json.loads(unpad(raw, 16).decode())
 
@@ -129,7 +130,7 @@ class _RupiahCepatAuth:
         res = self.s.post(
             BASE + path,
             data="data=" + self._encrypt(data),
-            timeout=30,
+            timeout=DEFAULT_TIMEOUT,
         )
         res.raise_for_status()
         body = res.json()
@@ -150,8 +151,30 @@ class _RupiahCepatAuth:
         )
 
 
+def send_otp_detailed(mobile: str, session: Session | None = None) -> ProviderResult:
+    """Kirim OTP ke *mobile* via RupiahCepat dengan informasi durasi dan status."""
+    t0 = time.perf_counter()
+    try:
+        auth = _RupiahCepatAuth(session=session)
+        res = auth.send_otp(mobile)
+        elapsed = time.perf_counter() - t0
+        is_ok = res.get("code") == 0
+        msg = res.get("msg") or ("Berhasil" if is_ok else f"Code: {res.get('code')}")
+        return ProviderResult(
+            provider="RupiahCepat",
+            success=is_ok,
+            elapsed=elapsed,
+            message=str(msg),
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        return ProviderResult(
+            provider="RupiahCepat",
+            success=False,
+            elapsed=time.perf_counter() - t0,
+            message=str(exc),
+        )
+
+
 def send_otp(mobile: str) -> bool:
     """Kirim OTP ke *mobile* via RupiahCepat. Kembalikan True jika berhasil."""
-    auth = _RupiahCepatAuth()
-    res = auth.send_otp(mobile)
-    return res.get("code") == 0
+    return send_otp_detailed(mobile).success

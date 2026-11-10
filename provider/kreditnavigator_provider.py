@@ -1,13 +1,22 @@
+"""Provider KreditNavigator – kirim OTP via API terenkripsi AES-CBC."""
 from __future__ import annotations
 
 import base64
 import json
+import time
 import uuid
 from typing import Any
 
-from Cryptodome.Cipher import AES
-from Cryptodome.Util.Padding import pad, unpad
+try:
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Util.Padding import pad, unpad
+except ImportError:
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import pad, unpad
 import requests
+from requests.sessions import Session
+
+from provider.base import DEFAULT_TIMEOUT, ProviderResult, create_session
 
 _BASE_URL = "https://buzzly.nexlendquontic.com/uploadtool/"
 _AES_KEY = b"98cCLqPsTpEZXFu1"
@@ -18,7 +27,6 @@ _VERSION_NAME = "1.1.6"
 _VERSION_CODE = 6
 _CLIENT_KEY = "46pF5ta0gyLIV6sz"
 _DEFAULT_APP_ID = "00000000-0000-0000-0000-000000000000"
-_TIMEOUT = 30.0
 
 
 def _json_compact(obj: Any) -> str:
@@ -74,13 +82,13 @@ def _build_body(params: dict[str, Any], **device_kwargs: Any) -> str:
     return _encrypt(_json_compact(payload))
 
 
-def _post(path: str, body: str) -> requests.Response:
+def _post(session: Session, path: str, body: str) -> requests.Response:
     url = _BASE_URL + path.lstrip("/")
-    return requests.post(
+    return session.post(
         url,
         data=body.encode("utf-8"),
         headers={"Content-Type": _CONTENT_TYPE},
-        timeout=_TIMEOUT,
+        timeout=DEFAULT_TIMEOUT,
     )
 
 
@@ -112,7 +120,7 @@ def _decode_response(resp: requests.Response) -> Any:
         return plain
 
 
-def _bootstrap_session() -> dict[str, str]:
+def _bootstrap_session(session: Session) -> dict[str, str]:
     android_id = uuid.uuid4().hex[:16]
     app_id = _DEFAULT_APP_ID
     params = {
@@ -124,7 +132,7 @@ def _bootstrap_session() -> dict[str, str]:
         "dtqp": app_id,
     }
     body = _build_body(params, android_id=android_id, user_id="", app_id=app_id, access_token="")
-    resp = _post("device/user/create", body)
+    resp = _post(session, "device/user/create", body)
     result = _decode_response(resp)
 
     if not isinstance(result, dict):
@@ -137,43 +145,79 @@ def _bootstrap_session() -> dict[str, str]:
     return {"android_id": android_id, "user_id": user_id, "app_id": app_id, "access_token": ""}
 
 
-def send_otp(mobile: str) -> bool:
+def send_otp_detailed(mobile: str, session: Session | None = None) -> ProviderResult:
+    """Kirim OTP ke *mobile* via KreditNavigator dengan informasi durasi dan status."""
+    t0 = time.perf_counter()
+    sess = session or create_session()
     try:
-        session = _bootstrap_session()
-        if not session:
-            return False
+        auth_session = _bootstrap_session(sess)
+        if not auth_session:
+            return ProviderResult(
+                provider="KreditNavigator",
+                success=False,
+                elapsed=time.perf_counter() - t0,
+                message="Gagal bootstrap sesi",
+            )
 
         device_kwargs: dict[str, Any] = {
-            "android_id": session["android_id"],
-            "user_id": session["user_id"],
-            "app_id": session["app_id"],
-            "access_token": session["access_token"],
+            "android_id": auth_session["android_id"],
+            "user_id": auth_session["user_id"],
+            "app_id": auth_session["app_id"],
+            "access_token": auth_session["access_token"],
         }
 
         validity_body = _build_body({"aqpkhypy": mobile, "izjfn": 1}, **device_kwargs)
-        validity_resp = _post("user/validity/check", validity_body)
+        validity_resp = _post(sess, "user/validity/check", validity_body)
         validity = _decode_response(validity_resp)
 
         if not isinstance(validity, dict):
-            return False
+            return ProviderResult(
+                provider="KreditNavigator",
+                success=False,
+                elapsed=time.perf_counter() - t0,
+                message="Validasi nomor gagal",
+            )
+
+        if validity.get("lil", 0) != 0:
+            return ProviderResult(
+                provider="KreditNavigator",
+                success=False,
+                elapsed=time.perf_counter() - t0,
+                message=validity.get("siauesll") or f"Validasi gagal: lil {validity.get('lil')}",
+            )
 
         gan = validity.get("gan")
         frle = gan.get("frle") if isinstance(gan, dict) else None
-        if frle is None:
-            return False
 
-        if frle == 0:
-            otp_path = "user-service/text-message"
-            otp_params: dict[str, Any] = {"ogeuvrfa": mobile, "xyldzdmx": "TEXT", "tvafse": 0}
-        else:
+        if frle == 1:
             otp_path = "auth/inbound-sms"
-            otp_params = {"hjhi": mobile, "str": "TEXT", "uzho": 0}
+            otp_params: dict[str, Any] = {"hjhi": mobile, "str": "TEXT", "uzho": 0}
+        else:
+            otp_path = "user-service/text-message"
+            otp_params = {"ogeuvrfa": mobile, "xyldzdmx": "TEXT", "tvafse": 0}
 
         otp_body = _build_body(otp_params, **device_kwargs)
-        otp_resp = _post(otp_path, otp_body)
+        otp_resp = _post(sess, otp_path, otp_body)
         result = _decode_response(otp_resp)
 
-        return isinstance(result, dict) and result.get("lil") == 0
+        is_ok = isinstance(result, dict) and result.get("lil") == 0
+        msg = "Berhasil" if is_ok else f"Code lil: {result.get('lil') if isinstance(result, dict) else 'Unknown'}"
+        return ProviderResult(
+            provider="KreditNavigator",
+            success=is_ok,
+            elapsed=time.perf_counter() - t0,
+            message=msg,
+        )
 
-    except (requests.RequestException, KeyError, TypeError):
-        return False
+    except (requests.RequestException, KeyError, TypeError) as exc:
+        return ProviderResult(
+            provider="KreditNavigator",
+            success=False,
+            elapsed=time.perf_counter() - t0,
+            message=str(exc),
+        )
+
+
+def send_otp(mobile: str) -> bool:
+    """Kirim OTP ke *mobile* via KreditNavigator. Kembalikan True jika berhasil."""
+    return send_otp_detailed(mobile).success
