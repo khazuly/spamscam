@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 import warnings
 from typing import Any
 
@@ -12,9 +13,15 @@ warnings.filterwarnings(
     message="Unable to find acceptable character detection dependency",
 )
 
-from Cryptodome.Cipher import AES
-from Cryptodome.Util.Padding import pad, unpad
+try:
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Util.Padding import pad, unpad
+except ImportError:
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import pad, unpad
 from requests.sessions import Session
+
+from provider.base import DEFAULT_TIMEOUT, ProviderResult, create_session
 
 BASE = "https://app.indosaku.id"
 SEND_PATH = "/jdn49uXCY9hp/mvNa/f8t_UdUf"
@@ -42,7 +49,7 @@ def _random_android_id() -> str:
 class _IndosakuAuth:
 
     def __init__(self, session: Session | None = None):
-        self.s = session or Session()
+        self.s = session or create_session()
         self.s.headers.update(_HEADERS)
         self.s.headers.update({"b9uMD": _random_android_id()})
 
@@ -79,14 +86,36 @@ class _IndosakuAuth:
         res = self.s.post(
             BASE + SEND_PATH,
             data=self._encrypt(payload),
-            timeout=30,
+            timeout=DEFAULT_TIMEOUT,
         )
         return self._decrypt(res.text)
 
 
+def send_otp_detailed(mobile: str, session: Session | None = None) -> ProviderResult:
+    """Kirim OTP ke *mobile* via Indosaku dengan informasi durasi dan status."""
+    t0 = time.perf_counter()
+    try:
+        auth = _IndosakuAuth(session=session)
+        res = auth.send_otp(mobile)
+        elapsed = time.perf_counter() - t0
+        data = res.get("data") or {}
+        is_ok = res.get("code") == 200 and data.get("tsFzo") == 1
+        msg = res.get("msg") or ("Berhasil" if is_ok else f"Code: {res.get('code')}")
+        return ProviderResult(
+            provider="Indosaku",
+            success=is_ok,
+            elapsed=elapsed,
+            message=str(msg),
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        return ProviderResult(
+            provider="Indosaku",
+            success=False,
+            elapsed=time.perf_counter() - t0,
+            message=str(exc),
+        )
+
+
 def send_otp(mobile: str) -> bool:
     """Kirim OTP ke *mobile* via Indosaku. Kembalikan True jika berhasil."""
-    auth = _IndosakuAuth()
-    res = auth.send_otp(mobile)
-    data = res.get("data") or {}
-    return res.get("code") == 200 and data.get("tsFzo") == 1
+    return send_otp_detailed(mobile).success
