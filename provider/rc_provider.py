@@ -159,7 +159,7 @@ def send_otp_detailed(mobile: str, session: Session | None = None) -> ProviderRe
         res = auth.send_otp(mobile)
         elapsed = time.perf_counter() - t0
         is_ok = res.get("code") == 0
-        msg = res.get("msg") or ("Berhasil" if is_ok else f"Code: {res.get('code')}")
+        msg = res.get("message") or res.get("msg") or ("Berhasil" if is_ok else f"Code: {res.get('code')}")
         return ProviderResult(
             provider="RupiahCepat",
             success=is_ok,

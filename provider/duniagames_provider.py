@@ -48,11 +48,12 @@ def send_otp_detailed(mobile: str, session: Session | None = None) -> ProviderRe
                 elapsed=elapsed,
                 message=str(msg),
             )
+        msg = "Rate limited (Too Many Requests - Cooldown)" if resp.status_code == 429 else f"HTTP {resp.status_code}"
         return ProviderResult(
             provider="Dunia Games",
             success=False,
             elapsed=elapsed,
-            message=f"HTTP {resp.status_code}",
+            message=msg,
         )
     except Exception as exc:  # pylint: disable=broad-except
         return ProviderResult(

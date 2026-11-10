@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import time
+import uuid
 import warnings
 from typing import Any
 
@@ -25,30 +26,36 @@ except ImportError:
 BASE = "https://h5.adakami.id"
 LANDING_REFERER = f"{BASE}/landing/register?id=64&skin=newUI&needAbTest=false"
 
-api_endpoint = f"{BASE}/api/h5/verifySlider"
-slider_endpoint = f"{BASE}/api/h5/verificationCode/slider"
+slider_endpoint = f"{BASE}/gateway/h5anon/merchantwook/verify/verificationCode/slider"
+api_endpoint = f"{BASE}/gateway/h5anon/merchantwook/user/registerOrLogin/sendOtp"
 
 USER_AGENT = (
     "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
 )
 
-_HEADERS = {
-    "Accept": "application/json, text/plain, */*",
-    "Content-Type": "application/json",
-    "X-ADA-OS": "android",
-    "X-CLIENT": "h5",
-    "Origin": BASE,
-    "Referer": LANDING_REFERER,
-    "User-Agent": USER_AGENT,
-}
 
-MSG_TYPE = 2
+def _get_headers() -> dict[str, str]:
+    return {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "X-ADA-OS": "android",
+        "X-CLIENT": "h5",
+        "merchant-no": "PA_WOOK_ADA",
+        "deviceId": uuid.uuid4().hex,
+        "appId": "800006",
+        "platform": "h5_PA_WOOK_ADA",
+        "tenantId": "1",
+        "product": "H5_WOOK",
+        "Origin": BASE,
+        "Referer": LANDING_REFERER,
+        "User-Agent": USER_AGENT,
+    }
 
 
 def _new_session() -> Session:
     s = create_session()
-    s.headers.update(_HEADERS)
+    s.headers.update(_get_headers())
     try:
         s.get(LANDING_REFERER, timeout=DEFAULT_TIMEOUT)
     except Exception:
@@ -79,7 +86,6 @@ def _solve_slider_x(challenge: dict) -> float:
     w_img = original.shape[1]
 
     # Optimasi: Potong vertikal original hanya di sekitar targetYHeightPercent
-    # daripada menjalankan template matching di seluruh canvas gambar
     expected_y = round(float(challenge.get("targetYHeightPercent", 0.5)) * h_img)
     lo = max(0, expected_y - 4)
     hi = min(h_img - h_tpl, expected_y + 4)
@@ -103,30 +109,34 @@ class _AdakamiAuth:
         self.s = session or _new_session()
 
     def _post(self, url: str, payload: dict) -> dict:
-        r = self.s.post(url, json=payload, headers=_HEADERS, timeout=DEFAULT_TIMEOUT)
+        r = self.s.post(url, json=payload, headers=_get_headers(), timeout=DEFAULT_TIMEOUT)
         r.raise_for_status()
         return r.json()
 
     def _slider_challenge(self, mobile: str) -> dict:
-        res = self._post(slider_endpoint, {"verifyToken": mobile})
+        res = self._post(slider_endpoint, {"mobile": mobile})
         if res.get("result") != 0:
-            raise RuntimeError(f"slider gagal: {res}")
+            msg = res.get("resultMessage") or f"Slider ditolak: kode {res.get('result')}"
+            raise RuntimeError(msg)
         content = res.get("content")
         if not isinstance(content, dict):
-            raise RuntimeError(f"slider tidak valid: {res}")
+            raise RuntimeError("Konten slider tidak valid")
         return content
 
-    def send_otp(self, mobile: str, msg_type: int = MSG_TYPE, max_attempts: int = 3) -> dict:
+    def send_otp(self, mobile: str, max_attempts: int = 3) -> dict:
         last: dict = {}
         for _ in range(max_attempts):
             challenge = self._slider_challenge(mobile)
-            x_width = _solve_slider_x(challenge)
+            # Gunakan targetXWidthPercent bawaan server atau template matcher
+            x_width = challenge.get("targetXWidthPercent")
+            if (x_width is None or x_width <= 0) and cv2 is not None:
+                x_width = _solve_slider_x(challenge)
+
             payload = {
-                "targetXWidthPresent": x_width,
-                "msgType": msg_type,
-                "verifyToken": mobile,
+                "xWidthPresent": x_width or 0.5,
                 "mobile": mobile,
-                "verificationToken": challenge.get("verificationToken") or "",
+                "md5Mobile": "",
+                "smsTypeEnum": "SMS",
             }
             last = self._post(api_endpoint, payload)
             if last.get("result") == 0:
@@ -139,20 +149,12 @@ class _AdakamiAuth:
 def send_otp_detailed(mobile: str, session: Session | None = None) -> ProviderResult:
     """Kirim OTP ke *mobile* via AdaKami dengan informasi durasi dan status."""
     t0 = time.perf_counter()
-    if cv2 is None or np is None:
-        return ProviderResult(
-            provider="AdaKami",
-            success=False,
-            elapsed=0.0,
-            message="Modul opencv-python atau numpy belum terpasang",
-        )
-
     try:
         auth = _AdakamiAuth(session=session)
         res = auth.send_otp(mobile)
         elapsed = time.perf_counter() - t0
         is_ok = res.get("result") == 0
-        msg = res.get("message") or ("Berhasil" if is_ok else f"Result code: {res.get('result')}")
+        msg = res.get("resultMessage") or res.get("message") or ("Berhasil" if is_ok else f"Result code: {res.get('result')}")
         return ProviderResult(
             provider="AdaKami",
             success=is_ok,
